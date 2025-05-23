@@ -35,7 +35,79 @@ class AppDb : DbContext {
 }
 
 class Producto{
+class Producto {
     public int Id { get; set; }
     public string Nombre { get; set; } = null!;
     public decimal Precio { get; set; }
+}}
+#r "nuget: Microsoft.EntityFrameworkCore.Sqlite"
+#r "nuget: Microsoft.EntityFrameworkCore"
+#r "nuget: Microsoft.AspNetCore.App"
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+
+public class Producto
+{
+    public int Id { get; set; }
+    public string Nombre { get; set; } = "";
+    public int Stock { get; set; }
 }
+
+public class TiendaDbContext : DbContext
+{
+    public DbSet<Producto> Productos => Set<Producto>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options)
+        => options.UseSqlite("Data Source=tienda.db");
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        var productosIniciales = Enumerable.Range(1, 10).Select(i =>
+            new Producto { Id = i, Nombre = $"Producto {i}", Stock = 10 }
+        );
+
+        modelBuilder.Entity<Producto>().HasData(productosIniciales);
+    }
+}
+
+var builder = WebApplication.CreateBuilder();
+builder.Services.AddDbContext<TiendaDbContext>();
+var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<TiendaDbContext>();
+    db.Database.EnsureDeleted();
+    db.Database.EnsureCreated();
+}
+
+app.MapGet("/productos", async (TiendaDbContext db) =>
+    await db.Productos.ToListAsync());
+
+app.MapGet("/productos/bajo-stock", async (TiendaDbContext db) =>
+    await db.Productos.Where(p => p.Stock < 3).ToListAsync());
+
+app.MapPost("/productos/{id}/agregar", async (int id, int cantidad, TiendaDbContext db) =>
+{
+    var prod = await db.Productos.FindAsync(id);
+    if (prod == null) return Results.NotFound();
+    prod.Stock += cantidad;
+    await db.SaveChangesAsync();
+    return Results.Ok(prod);
+});
+
+app.MapPost("/productos/{id}/quitar", async (int id, int cantidad, TiendaDbContext db) =>
+{
+    var prod = await db.Productos.FindAsync(id);
+    if (prod == null) return Results.NotFound();
+    if (prod.Stock < cantidad)
+        return Results.BadRequest($"Stock insuficiente (actual: {prod.Stock})");
+    prod.Stock -= cantidad;
+    await db.SaveChangesAsync();
+    return Results.Ok(prod);
+});
+
+app.Run("http://localhost:5000");
