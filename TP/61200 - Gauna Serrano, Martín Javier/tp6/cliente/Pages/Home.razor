@@ -1,6 +1,8 @@
 ﻿@page "/"
 @using cliente.Services
 @inject ApiService ApiService
+//en duda 
+using Microsoft.EntityFrameworkCore;
 
 <PageTitle>Inicio</PageTitle>
 
@@ -57,3 +59,172 @@
         }
     }
 }
+
+// App.razor
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <p>Página no encontrada</p>
+        </LayoutView>
+    </NotFound>
+</Router>
+// MainLayout.razor
+@inherits LayoutComponentBase
+
+<PageTitle>Tienda Online</PageTitle>
+
+<div class="container">
+    <header class="py-3 border-bottom mb-4">
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-center">
+            <a href="/" class="fs-4 text-decoration-none text-dark mb-2 mb-md-0">🛍️ Tienda Online</a>
+            
+            <div class="w-100 w-md-50 px-md-3 mb-2 mb-md-0">
+                <input class="form-control text-center" @bind="searchTerm" placeholder="🔍 Buscar productos..." @oninput="Buscar" />
+            </div>
+
+            <a href="/carrito" class="btn btn-outline-primary">
+                🛒 (@Servicio.Carrito.TotalItems)
+            </a>
+        </div>
+    </header>
+
+    <main>
+        @Body
+    </main>
+</div>
+
+@code {
+    [Inject] public TiendaService Servicio { get; set; }
+    string searchTerm = string.Empty;
+
+    void Buscar(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString() ?? string.Empty;
+        Servicio.FiltrarProductos(searchTerm);
+    }
+}
+// Pages/Index.razor
+@page "/"
+@inject TiendaService Servicio
+
+<h2>Catálogo de Productos</h2>
+
+@if (Servicio.ProductosFiltrados.Count == 0)
+{
+    <p>No hay productos para mostrar.</p>
+}
+else
+{
+    <div class="row">
+        @foreach (var p in Servicio.ProductosFiltrados)
+        {
+            <div class="col-md-4 mb-3">
+                <div class="card">
+                    <img src="@p.ImagenUrl" class="card-img-top" alt="@p.Nombre" />
+                    <div class="card-body">
+                        <h5 class="card-title">@p.Nombre</h5>
+                        <p>@p.Descripcion</p>
+                        <p><strong>$@p.Precio</strong> (Stock: @p.Stock)</p>
+                        <button class="btn btn-primary" @onclick="() => Agregar(p.Id)">Agregar al carrito</button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    void Agregar(int id) => Servicio.AgregarAlCarrito(id);
+}
+
+
+// Pages/Carrito.razor
+@page "/carrito"
+@inject TiendaService Servicio
+
+<h2>Carrito de Compra</h2>
+
+@if (Servicio.Carrito.Items.Count == 0)
+{
+    <p>El carrito está vacío.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Producto</th>
+                <th>Precio</th>
+                <th>Cantidad</th>
+                <th>Total</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Servicio.Carrito.Items)
+            {
+                <tr>
+                    <td>@item.Nombre</td>
+                    <td>$@item.PrecioUnitario</td>
+                    <td>
+                        <button @onclick="() => Servicio.ModificarCantidad(item.ProductoId, -1)">-</button>
+                        @item.Cantidad
+                        <button @onclick="() => Servicio.ModificarCantidad(item.ProductoId, 1)">+</button>
+                    </td>
+                    <td>$@(item.Cantidad * item.PrecioUnitario)</td>
+                    <td><button @onclick="() => Servicio.QuitarDelCarrito(item.ProductoId)">Eliminar</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <p><strong>Total: $@Servicio.Carrito.Total</strong></p>
+
+    <button class="btn btn-secondary" @onclick="Servicio.VaciarCarrito">Vaciar carrito</button>
+    <a href="/confirmar" class="btn btn-success">Confirmar compra</a>
+}
+
+
+// Pages/Confirmar.razor
+@page "/confirmar"
+@inject TiendaService Servicio
+@inject NavigationManager Navigation
+
+<h2>Confirmar Compra</h2>
+
+@if (Servicio.Carrito.Items.Count == 0)
+{
+    <p>El carrito está vacío. Vuelve al <a href="/">catálogo</a>.</p>
+}
+else
+{
+    <EditForm Model="@Servicio.DatosCliente" OnValidSubmit="Confirmar">
+        <div class="mb-3">
+            <label>Nombre:</label>
+            <InputText class="form-control" @bind-Value="Servicio.DatosCliente.Nombre" />
+        </div>
+        <div class="mb-3">
+            <label>Apellido:</label>
+            <InputText class="form-control" @bind-Value="Servicio.DatosCliente.Apellido" />
+        </div>
+        <div class="mb-3">
+            <label>Email:</label>
+            <InputText class="form-control" @bind-Value="Servicio.DatosCliente.Email" />
+        </div>
+        <button type="submit" class="btn btn-success">Confirmar</button>
+    </EditForm>
+
+    <p>Total: $@Servicio.Carrito.Total</p>
+}
+
+@code {
+    private async Task Confirmar()
+    {
+        await Servicio.ConfirmarCompra();
+        Navigation.NavigateTo("/");
+    }
+}
+
